@@ -1,40 +1,59 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
+import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { Keyboard } from "./components/Keyboard";
 import { motion } from "framer-motion";
 import { Minimize2, Maximize2 } from "lucide-react";
-import { LAYOUTS, getLayoutKeys, type LayoutId, type KeyboardLayout } from "./layouts";
-import { DEFAULT_THUMBS, THUMBS_STORAGE_KEY, NUMBERS_STORAGE_KEY, type ThumbConfig } from "./thumbKeys";
+import { GRAPHITE, getLayoutKeys } from "./layouts";
+import { DEFAULT_THUMBS, THUMBS_STORAGE_KEY, type ThumbConfig } from "./thumbKeys";
 
-function getWindowSize(compact: boolean, matrix: boolean, showNumbers: boolean) {
-  const numExtra = showNumbers ? (compact ? 35 : 50) : 0;
-  if (compact && matrix) return { width: 440, height: 220 + numExtra };
-  if (compact && !matrix) return { width: 380, height: 160 + numExtra };
-  if (!compact && matrix) return { width: 650, height: 350 + numExtra };
-  return { width: 560, height: 240 + numExtra };
+type Size = { width: number; height: number };
+
+// Space between the keyboard card and the window edges
+const WINDOW_MARGIN = 16;
+
+/**
+ * Move the window to (x, y), keeping it inside the work area (the screen
+ * minus the menu bar and Dock) of the monitor it ends up on.
+ */
+async function placeWindow(x: number, y: number, size: Size) {
+  const win = getCurrentWindow();
+  await win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
+  const monitor = await currentMonitor();
+  if (!monitor) return;
+  const scale = monitor.scaleFactor;
+  const areaX = monitor.workArea.position.x / scale;
+  const areaY = monitor.workArea.position.y / scale;
+  const areaWidth = monitor.workArea.size.width / scale;
+  const areaHeight = monitor.workArea.size.height / scale;
+  const clampedX = Math.max(areaX, Math.min(x, areaX + areaWidth - size.width));
+  const clampedY = Math.max(areaY, Math.min(y, areaY + areaHeight - size.height));
+  if (clampedX !== x || clampedY !== y) {
+    await win.setPosition(new LogicalPosition(Math.round(clampedX), Math.round(clampedY)));
+  }
+}
+
+async function resizeWindow(size: Size) {
+  const win = getCurrentWindow();
+  await win.setSize(new LogicalSize(size.width, size.height));
+  const scale = await win.scaleFactor();
+  const position = await win.outerPosition();
+  await placeWindow(position.x / scale, position.y / scale, size);
 }
 
 const IDLE_TIMEOUT = 2000;
 
 const STORAGE_KEY = 'keyglance-compact';
-const LAYOUT_STORAGE_KEY = 'keyglance-layout';
 const MATRIX_STORAGE_KEY = 'keyglance-matrix';
 
 export default function App() {
   const [activeKey, setActiveKey] = useState<string | undefined>();
   const [isShiftPressed, setIsShiftPressed] = useState(false);
   const [compact, setCompact] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true');
-  const [layoutId, setLayoutId] = useState<LayoutId>(() => {
-    const saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
-    return (saved && saved in LAYOUTS) ? saved as LayoutId : 'colemak-dh';
-  });
   const [matrix, setMatrix] = useState(() => {
     const saved = localStorage.getItem(MATRIX_STORAGE_KEY);
     return saved === null ? true : saved === 'true';
-  });
-  const [showNumbers, setShowNumbers] = useState(() => {
-    return localStorage.getItem(NUMBERS_STORAGE_KEY) === 'true';
   });
   const [thumbKeys, setThumbKeys] = useState<ThumbConfig>(() => {
     try {
@@ -48,8 +67,7 @@ export default function App() {
   const idleRef = useRef(false);
   const idleTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const layout: KeyboardLayout = LAYOUTS[layoutId];
-  const layoutKeys = useMemo(() => getLayoutKeys(layout, showNumbers), [layout, showNumbers]);
+  const layoutKeys = useMemo(() => getLayoutKeys(GRAPHITE), []);
 
   const resetIdleTimer = () => {
     setIdle(false);
@@ -70,30 +88,34 @@ export default function App() {
     return () => clearTimeout(idleTimer.current);
   }, []);
 
-  // Restore window size on mount
+  // Fit the window to the card whenever its size changes (on mount, compact
+  // toggle, matrix toggle, accessibility notice)
+  const cardRef = useRef<HTMLDivElement>(null);
+  const windowSize = useRef<Size>({ width: 0, height: 0 });
+
   useEffect(() => {
-    const size = getWindowSize(compact, matrix, showNumbers);
-    import("@tauri-apps/api/dpi").then(({ LogicalSize }) => {
-      getCurrentWindow().setSize(new LogicalSize(size.width, size.height));
+    const card = cardRef.current;
+    if (!card) return;
+    const observer = new ResizeObserver(() => {
+      const size = {
+        width: card.offsetWidth + WINDOW_MARGIN * 2,
+        height: card.offsetHeight + WINDOW_MARGIN * 2,
+      };
+      if (size.width === windowSize.current.width && size.height === windowSize.current.height) return;
+      windowSize.current = size;
+      resizeWindow(size);
     });
+    observer.observe(card, { box: "border-box" });
+    return () => observer.disconnect();
   }, []);
 
   // Track focused text input and move window above it
-  const compactRef = useRef(compact);
-  compactRef.current = compact;
-  const matrixRef = useRef(matrix);
-  matrixRef.current = matrix;
-  const showNumbersRef = useRef(showNumbers);
-  showNumbersRef.current = showNumbers;
-
   useEffect(() => {
     const unlistenInput = listen<{ x: number; y: number; width: number; height: number }>(
       "focused-input",
       async (event) => {
         const { x, y, width, height } = event.payload;
-        const { LogicalPosition } = await import("@tauri-apps/api/dpi");
-        const win = getCurrentWindow();
-        const size = getWindowSize(compactRef.current, matrixRef.current, showNumbersRef.current);
+        const size = windowSize.current;
 
         // Center the keyboard above the input field, with a gap
         const gap = 40;
@@ -105,10 +127,7 @@ export default function App() {
           newY = y + height + gap;
         }
 
-        await win.setPosition(new LogicalPosition(
-          Math.max(0, Math.round(newX)),
-          Math.max(0, Math.round(newY)),
-        ));
+        await placeWindow(newX, newY, size);
       },
     );
 
@@ -123,8 +142,7 @@ export default function App() {
   );
 
   useEffect(() => {
-    const isLayoutKey = (key: string) =>
-      layoutKeys.has(key.toUpperCase()) || layoutKeys.has(key);
+    const isLayoutKey = (key: string) => layoutKeys.has(key);
 
     const unlistenDown = listen("global-keydown", (event) => {
       const rawKey = event.payload as string;
@@ -156,32 +174,12 @@ export default function App() {
     };
   }, [layoutKeys, thumbKeySet]);
 
-  // Listen for tray menu events (layout change, matrix toggle, numbers toggle)
+  // Listen for tray menu events (matrix toggle)
   useEffect(() => {
-    const unlistenLayout = listen<string>("tray-change-layout", (event) => {
-      const id = event.payload as LayoutId;
-      if (id in LAYOUTS) {
-        setLayoutId(id);
-        localStorage.setItem(LAYOUT_STORAGE_KEY, id);
-      }
-    });
-
-    const unlistenMatrix = listen<boolean>("tray-toggle-matrix", async (event) => {
+    const unlistenMatrix = listen<boolean>("tray-toggle-matrix", (event) => {
       const newVal = event.payload;
       setMatrix(newVal);
       localStorage.setItem(MATRIX_STORAGE_KEY, String(newVal));
-      const size = getWindowSize(compactRef.current, newVal, showNumbersRef.current);
-      const win = getCurrentWindow();
-      await win.setSize(new (await import("@tauri-apps/api/dpi")).LogicalSize(size.width, size.height));
-    });
-
-    const unlistenNumbers = listen<boolean>("tray-toggle-numbers", async (event) => {
-      const newVal = event.payload;
-      setShowNumbers(newVal);
-      localStorage.setItem(NUMBERS_STORAGE_KEY, String(newVal));
-      const size = getWindowSize(compactRef.current, matrixRef.current, newVal);
-      const win = getCurrentWindow();
-      await win.setSize(new (await import("@tauri-apps/api/dpi")).LogicalSize(size.width, size.height));
     });
 
     const unlistenThumbs = listen<ThumbConfig>("settings-update-thumbs", (event) => {
@@ -199,30 +197,26 @@ export default function App() {
     });
 
     return () => {
-      unlistenLayout.then((f) => f());
       unlistenMatrix.then((f) => f());
-      unlistenNumbers.then((f) => f());
       unlistenThumbs.then((f) => f());
       unlistenAccessMissing.then((f) => f());
       unlistenAccessGranted.then((f) => f());
     };
   }, []);
 
-  const toggleCompact = async () => {
+  const toggleCompact = () => {
     const next = !compact;
     setCompact(next);
     localStorage.setItem(STORAGE_KEY, String(next));
-    const size = getWindowSize(next, matrix, showNumbers);
-    const win = getCurrentWindow();
-    await win.setSize(new (await import("@tauri-apps/api/dpi")).LogicalSize(size.width, size.height));
   };
 
   return (
     <main className="h-screen w-screen flex items-center justify-center bg-transparent">
       <motion.div
+        ref={cardRef}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`glass rounded-3xl relative ${
+        className={`glass rounded-3xl relative shrink-0 ${
           idle ? "idle" : ""
         } ${
           compact ? "p-4" : "p-8"
@@ -249,10 +243,10 @@ export default function App() {
             compact ? "text-[8px] mb-3" : "text-[10px] mb-6"
           }`}
         >
-          {layout.name}
+          {GRAPHITE.name}
         </div>
 
-        <Keyboard layout={layout} activeKey={activeKey} isShiftPressed={isShiftPressed} compact={compact} matrix={matrix} showNumbers={showNumbers} thumbKeys={thumbKeys} />
+        <Keyboard layout={GRAPHITE} activeKey={activeKey} isShiftPressed={isShiftPressed} compact={compact} matrix={matrix} thumbKeys={thumbKeys} />
 
         {accessibilityMissing && (
           <div className={`text-center text-red-500/70 font-semibold ${compact ? "text-[8px] mt-2" : "text-[10px] mt-3"}`}>

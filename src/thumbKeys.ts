@@ -38,4 +38,3 @@ export const DEFAULT_THUMBS: ThumbConfig = {
 };
 
 export const THUMBS_STORAGE_KEY = 'keyglance-thumbs';
-export const NUMBERS_STORAGE_KEY = 'keyglance-numbers';

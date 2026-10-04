@@ -1,13 +1,11 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import {
   KeyboardLayout,
-  buildFingerMap,
-  NUMBER_ROW_LEFT,
-  NUMBER_ROW_RIGHT,
-  NUMBER_ROW_SHIFTED_LEFT,
-  NUMBER_ROW_SHIFTED_RIGHT,
+  FINGERS,
+  HOMING_COLUMNS,
+  HOME_ROW_INDEX,
 } from '../layouts';
-import { FINGER_COLORS } from '../constants';
+import { FINGER_COLORS, SHIFT_MAP } from '../constants';
 import { THUMB_DISPLAY, type ThumbConfig } from '../thumbKeys';
 import { cn } from '../lib/utils';
 
@@ -17,7 +15,6 @@ interface KeyboardProps {
   isShiftPressed?: boolean;
   compact?: boolean;
   matrix?: boolean;
-  showNumbers?: boolean;
   thumbKeys?: ThumbConfig;
 }
 
@@ -27,29 +24,31 @@ export const Keyboard: React.FC<KeyboardProps> = ({
   isShiftPressed,
   compact,
   matrix = true,
-  showNumbers = false,
   thumbKeys,
 }) => {
-  const fingerMap = useMemo(() => buildFingerMap(layout, showNumbers), [layout, showNumbers]);
-
   const keySize = compact ? 'w-7 h-7 text-xs' : 'w-11 h-11 text-base';
   const gap = compact ? 'gap-1' : 'gap-1.5';
 
-  // Home row index shifts when number row is shown
-  const homeRowIndex = showNumbers ? 2 : 1;
+  // Character produced by the pressed key (a US ANSI key name such as "A" or
+  // "'") given the Shift state, e.g. Shift + "-" → "_".
+  const activeChar = activeKey && (isShiftPressed
+    ? SHIFT_MAP[activeKey] ?? activeKey.toUpperCase()
+    : activeKey.toLowerCase());
 
-  const renderKey = (key: string, rowIndex: number, colIndex: number, side: 'left' | 'right') => {
-    const isActive = activeKey?.toUpperCase() === key || activeKey === key;
-    const isHomeRow = rowIndex === homeRowIndex;
-    // Homing bump: left cols 0-3, right cols 1-4
-    const isHomingKey = isHomeRow && (side === 'left' ? colIndex <= 3 : colIndex >= 1);
+  const renderKey = (key: string | null, rowIndex: number, colIndex: number, side: 'left' | 'right') => {
+    const id = `${side}-${rowIndex}-${colIndex}`;
+    if (key === null) return <div key={id} className={keySize} />;
 
-    const finger = fingerMap[key.toUpperCase()] || fingerMap[key];
+    const isActive = activeChar === key;
+    const isHomeRow = rowIndex === HOME_ROW_INDEX;
+    const isHomingKey = isHomeRow && HOMING_COLUMNS[side].includes(colIndex);
+
+    const finger = FINGERS[side][colIndex];
     const fingerColorClass = FINGER_COLORS[finger] || '';
 
     return (
       <div
-        key={`${side}-${rowIndex}-${colIndex}-${key}`}
+        key={id}
         className={cn(
           'key-cap relative',
           keySize,
@@ -58,7 +57,7 @@ export const Keyboard: React.FC<KeyboardProps> = ({
           isHomeRow && 'home-row',
         )}
       >
-        {key}
+        {key.toUpperCase()}
         {isHomingKey && (
           <div
             className={cn(
@@ -71,17 +70,10 @@ export const Keyboard: React.FC<KeyboardProps> = ({
     );
   };
 
-  const getRows = (side: 'left' | 'right') => {
-    const alphaRows = isShiftPressed
+  const getRows = (side: 'left' | 'right') =>
+    isShiftPressed
       ? (side === 'left' ? layout.shiftedLeft : layout.shiftedRight)
       : layout[side];
-    if (!showNumbers) return alphaRows;
-    // Prepend number row
-    const numRow = isShiftPressed
-      ? (side === 'left' ? NUMBER_ROW_SHIFTED_LEFT : NUMBER_ROW_SHIFTED_RIGHT)
-      : (side === 'left' ? NUMBER_ROW_LEFT : NUMBER_ROW_RIGHT);
-    return [numRow, ...alphaRows];
-  };
 
   // --- Flat (non-matrix) layout: single block, no split gap, no thumb keys ---
   if (!matrix) {

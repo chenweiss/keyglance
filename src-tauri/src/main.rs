@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::menu::{MenuBuilder, MenuItemBuilder, CheckMenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, CheckMenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri_plugin_autostart::ManagerExt;
 use serde::Serialize;
@@ -39,23 +39,8 @@ fn load_hide_dock_icon(app: &tauri::AppHandle) -> bool {
     load_settings(app).get("hide_dock_icon").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
-fn save_setting_str(app: &tauri::AppHandle, key: &str, value: &str) {
-    let path = config_path(app);
-    let mut settings = load_settings(app);
-    settings[key] = serde_json::json!(value);
-    let _ = fs::write(path, settings.to_string());
-}
-
-fn load_layout(app: &tauri::AppHandle) -> String {
-    load_settings(app).get("layout").and_then(|v| v.as_str()).unwrap_or("colemak-dh").to_string()
-}
-
 fn load_matrix_layout(app: &tauri::AppHandle) -> bool {
     load_settings(app).get("matrix_layout").and_then(|v| v.as_bool()).unwrap_or(true)
-}
-
-fn load_show_numbers(app: &tauri::AppHandle) -> bool {
-    load_settings(app).get("show_numbers").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
 // --- macOS dock icon visibility via NSApplication activation policy ---
@@ -726,39 +711,11 @@ fn main() {
             let launch_at_login = autostart_manager.is_enabled().unwrap_or(false);
 
             // --- System tray with menu ---
-            let current_layout = load_layout(app.handle());
             let matrix_enabled = load_matrix_layout(app.handle());
-
-            let layout_names = [
-                ("qwerty", "QWERTY"),
-                ("azerty", "AZERTY"),
-                ("qwertz", "QWERTZ"),
-                ("dvorak", "Dvorak"),
-                ("colemak", "Colemak"),
-                ("colemak-dh", "Colemak-DH"),
-            ];
-
-            let mut layout_check_items = Vec::new();
-            let mut layout_sub_builder = SubmenuBuilder::new(app, "Layout");
-            for (id, name) in &layout_names {
-                let item = CheckMenuItemBuilder::new(*name)
-                    .id(format!("layout-{}", id))
-                    .checked(*id == current_layout.as_str())
-                    .build(app)?;
-                layout_sub_builder = layout_sub_builder.item(&item);
-                layout_check_items.push((id.to_string(), item));
-            }
-            let layout_submenu = layout_sub_builder.build()?;
 
             let matrix_item = CheckMenuItemBuilder::new("Matrix Layout")
                 .id("matrix-layout")
                 .checked(matrix_enabled)
-                .build(app)?;
-
-            let numbers_enabled = load_show_numbers(app.handle());
-            let numbers_item = CheckMenuItemBuilder::new("Show Number Row")
-                .id("show-numbers")
-                .checked(numbers_enabled)
                 .build(app)?;
 
             let thumb_keys_item = MenuItemBuilder::new("Thumb Keys…")
@@ -790,9 +747,7 @@ fn main() {
                 .build(app)?;
 
             let menu = MenuBuilder::new(app)
-                .item(&layout_submenu)
                 .item(&matrix_item)
-                .item(&numbers_item)
                 .item(&thumb_keys_item)
                 .separator()
                 .item(&follow_item)
@@ -804,11 +759,7 @@ fn main() {
                 .build()?;
 
             let tray_handle = app.handle().clone();
-            let layout_items_for_handler: Vec<(String, _)> = layout_check_items.iter()
-                .map(|(id, item)| (id.clone(), item.clone()))
-                .collect();
             let matrix_item_for_handler = matrix_item.clone();
-            let numbers_item_for_handler = numbers_item.clone();
             let tray_icon_bytes = include_bytes!("../icons/tray-icon.png");
             let tray_icon = tauri::image::Image::from_bytes(tray_icon_bytes)?;
             TrayIconBuilder::new()
@@ -818,25 +769,11 @@ fn main() {
                 .on_menu_event(move |_app, event| {
                     let id_str = event.id().as_ref().to_owned();
 
-                    if let Some(layout_id) = id_str.strip_prefix("layout-") {
-                        for (lid, item) in &layout_items_for_handler {
-                            let _ = item.set_checked(lid.as_str() == layout_id);
-                        }
-                        save_setting_str(&tray_handle, "layout", layout_id);
-                        let _ = tray_handle.emit("tray-change-layout", layout_id);
-                        return;
-                    }
-
                     match id_str.as_str() {
                         "matrix-layout" => {
                             let new_val = matrix_item_for_handler.is_checked().unwrap_or(true);
                             save_setting(&tray_handle, "matrix_layout", new_val);
                             let _ = tray_handle.emit("tray-toggle-matrix", new_val);
-                        }
-                        "show-numbers" => {
-                            let new_val = numbers_item_for_handler.is_checked().unwrap_or(false);
-                            save_setting(&tray_handle, "show_numbers", new_val);
-                            let _ = tray_handle.emit("tray-toggle-numbers", new_val);
                         }
                         "thumb-keys" => {
                             if let Some(win) = tray_handle.get_webview_window("settings") {

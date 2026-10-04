@@ -12,7 +12,7 @@
 <p align="center">
   <a href="#features">Features</a> •
   <a href="#screenshots">Screenshots</a> •
-  <a href="#supported-keyboard-layouts">Layouts</a> •
+  <a href="#keyboard-layout">Layout</a> •
   <a href="#installation">Installation</a> •
   <a href="#development">Development</a> •
   <a href="#contributing">Contributing</a> •
@@ -36,28 +36,35 @@
 - **Split keyboard view** — matrix (ortholinear) layout with left/right hand split and configurable thumb keys
 - **Standard (flat) view** — traditional staggered keyboard layout option
 - **Compact & normal sizing** — toggle between a compact overlay and a larger, more readable view
-- **Number row** — optionally show/hide the number row
+- **Number/symbol row** — Graphite's number and symbol keys are always shown
 - **Configurable thumb keys** — assign any modifier or key (⌫ ⌘ ⏎ ␣ ⇥ ⎋ ⌦ ⌥ ⌃ ⇧) to thumb positions via a settings panel
 - **Always-on-top transparent overlay** — floats above all windows with a frosted-glass aesthetic
 - **Auto-follow focused input** — optionally repositions itself above the text field you're typing in
 - **Idle fade** — the overlay fades out after 2 seconds of inactivity for a distraction-free experience
-- **System tray integration** — switch layouts, toggle matrix mode, number row, and more from the tray menu
+- **System tray integration** — toggle matrix mode and more from the tray menu
 - **Launch at login** — optional autostart support
 - **Hide dock icon** — run as a menu-bar-only app on macOS
 - **Draggable window** — grab and reposition the overlay anywhere on screen
 - **Shift layer support** — displays shifted characters when Shift is held
 - **Lightweight & native** — built with Tauri 2 (Rust + WebView), minimal resource usage
 
-## Supported Keyboard Layouts
+## Keyboard Layout
 
-| Layout       | Description                                        |
-| ------------ | -------------------------------------------------- |
-| **QWERTY**   | The standard layout used by most keyboards          |
-| **AZERTY**   | French keyboard layout                              |
-| **QWERTZ**   | German/Central European keyboard layout             |
-| **Dvorak**   | Simplified Dvorak layout optimised for English      |
-| **Colemak**  | Modern alternative layout with minimal key changes   |
-| **Colemak-DH** | Colemak mod with improved home-row finger rolls   |
+Keyglance shows the [Graphite](https://github.com/rdavison/graphite-layout) layout, including its number/symbol row:
+
+```
+~ ! @ # $ %  ^ & * ( ) { }
+  B L D W Z  _ F O U J : + |
+  N R T S G  Y H A E I ?
+  Q X M C V  K P > " <
+
+` 1 2 3 4 5  6 7 8 9 0 [ ]
+  b l d w z  ' f o u j ; = \
+  n r t s g  y h a e i ,
+  q x m c v  k p . - /
+```
+
+Keys are highlighted by the character they type with the macOS input source set to US, so Graphite is expected to be implemented in your keyboard's firmware (e.g. Shift + `'` sending `_`).
 
 ## Installation
 
@@ -76,14 +83,15 @@ Download the latest release from the [Releases](https://github.com/bn326160/keyg
 
 #### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18+)
-- [Rust](https://www.rust-lang.org/tools/install) (stable)
-- [Tauri CLI](https://tauri.app/start/prerequisites/)
+- [mise](https://mise.jdx.dev/) — installs Node.js, Rust and the Tauri CLI from `mise.toml`
 
 ```bash
 # Clone the repo
 git clone https://github.com/brambeirens/keyglance.git
 cd keyglance
+
+# Install Node.js, Rust and the Tauri CLI
+mise install
 
 # Install dependencies
 npm install
@@ -111,13 +119,14 @@ keyglance/
 ├── src/                  # React frontend
 │   ├── App.tsx           # Main overlay UI
 │   ├── Settings.tsx      # Thumb key settings panel
-│   ├── layouts.ts        # Keyboard layout definitions
+│   ├── layouts.ts        # Graphite layout definition
 │   ├── thumbKeys.ts      # Thumb key options & config
 │   └── components/
 │       └── Keyboard.tsx  # Keyboard renderer
 ├── src-tauri/            # Rust backend (Tauri)
 │   └── src/
 │       └── main.rs       # Tray menu, global key listener, window management
+├── mise.toml             # Tool versions (Node.js, Rust, Tauri CLI)
 ├── package.json
 ├── tsconfig.json
 └── vite.config.ts
@@ -167,7 +176,6 @@ Contributions are welcome! Whether it's a bug fix, new keyboard layout, feature 
 - Keep changes focused — one feature or fix per PR
 - Follow the existing code style
 - Test your changes on macOS before submitting
-- Add new keyboard layouts to `src/layouts.ts` and register the `LayoutId` type
 
 ## License
 

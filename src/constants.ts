@@ -1,11 +1,12 @@
-// Standard QWERTY-based shift mapping for the non-alpha keys in our matrix
+// Standard US ANSI shift mapping for the non-alpha keys
 export const SHIFT_MAP: Record<string, string> = {
-  ';': ':',
-  ',': '<',
-  '.': '>',
-  '/': '?',
+  '`': '~',
   '1': '!', '2': '@', '3': '#', '4': '$', '5': '%',
   '6': '^', '7': '&', '8': '*', '9': '(', '0': ')',
+  '-': '_', '=': '+',
+  '[': '{', ']': '}', '\\': '|',
+  ';': ':', "'": '"',
+  ',': '<', '.': '>', '/': '?',
 };
 
 export const FINGER_COLORS: Record<string, string> = {
